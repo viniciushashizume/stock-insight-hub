@@ -32,31 +32,42 @@ regras_agregacao = {
 }
 
 def carregar_e_processar_dados():
-    # 1. CARREGAMENTO (Adapte para a origem real dos seus dados)
-    # Exemplo: df = pd.read_csv("seus_dados.csv") ou pd.read_excel("seus_dados.xlsx")
+    # 1. CARREGAMENTO
     try:
-        # Certifique-se de que o arquivo "estoque.csv" existe na mesma pasta ou ajuste o caminho
-        df = pd.read_csv("estoque.csv", encoding='utf-8', sep=';') 
-        # DICA: Se usar Excel, troque para: pd.read_excel("estoque.xlsx")
+        print("Tentando ler 'estoque.csv'...")
+        
+        # TENTATIVA 1: Padrão CSV comum (separador vírgula, encoding UTF-8)
+        # O parâmetro on_bad_lines='skip' ajuda a ignorar linhas problemáticas isoladas
+        try:
+            df = pd.read_csv("df_analise.csv.gz", sep=',', encoding='utf-8', on_bad_lines='warn')
+        except:
+            # TENTATIVA 2: Padrão Excel Brasileiro (separador ponto-e-vírgula, encoding latin1)
+            print("Tentativa com vírgula falhou. Tentando ponto-e-vírgula e latin1...")
+            df = pd.read_csv("estoque.csv", sep=';', encoding='latin1', on_bad_lines='warn')
+
+        print("Arquivo lido com sucesso!")
+        print(f"Colunas encontradas: {df.columns.tolist()}")
+
     except Exception as e:
-        print(f"Erro ao ler arquivo: {e}")
+        print(f"ERRO FATAL ao ler arquivo: {e}")
         return []
 
-    # 2. CONSOLIDAÇÃO (Sua lógica original)
+    # 2. CONSOLIDAÇÃO
     print("--- Consolidando movimentações em itens únicos... ---")
     cols_identificadores = ['id_item', 'ds_item', COLUNA_CLASSE]
     
-    # Verifica se as colunas necessárias existem no DataFrame carregado
+    # Verifica se as colunas existem (ajuste de sensibilidade a maiúsculas/minúsculas se necessário)
     cols_agregacao_existentes = {k: v for k, v in regras_agregacao.items() if k in df.columns}
     cols_id_existentes = [c for c in cols_identificadores if c in df.columns]
 
     if not cols_id_existentes:
-        print("Colunas identificadoras não encontradas no arquivo.")
+        print(f"Colunas identificadoras {cols_identificadores} não encontradas.")
+        print(f"Colunas disponíveis: {df.columns}")
         return []
 
     df_itens = df.groupby(cols_id_existentes).agg(cols_agregacao_existentes).reset_index()
 
-    # 3. CLUSTERIZAÇÃO (Sua lógica original adaptada para API)
+    # 3. CLUSTERIZAÇÃO
     features_cluster = list(cols_agregacao_existentes.keys())
     materiais_unicos = df_itens[COLUNA_CLASSE].dropna().unique()
     
@@ -66,24 +77,20 @@ def carregar_e_processar_dados():
         df_material = df_itens[df_itens[COLUNA_CLASSE] == material].copy()
         df_material = df_material.dropna(subset=features_cluster)
 
-        # Se tiver poucos itens, atribui cluster padrão 4 (neutro) ou pula
         if len(df_material) < MIN_ITENS_POR_GRUPO:
             df_material['Cluster'] = 4 
             resultado_final.append(df_material)
             continue
 
-        # Escalar
         scaler = StandardScaler()
         X = df_material[features_cluster]
         X_scaled = scaler.fit_transform(X)
 
-        # Definição do K
         if K_CLUSTERS_MANUAL is not None:
-            melhor_k = K_CLUSTERS_MANUAL
+            melhor_k = 3
             kmeans = KMeans(n_clusters=melhor_k, random_state=42, n_init=10)
             labels = kmeans.fit_predict(X_scaled)
         else:
-            # Modo Automático
             melhor_score = -1
             melhor_k = 2
             max_k = min(7, len(df_material))
@@ -103,12 +110,9 @@ def carregar_e_processar_dados():
         df_material['Cluster'] = labels
         resultado_final.append(df_material)
 
-    # Consolida todos os grupos processados
     if resultado_final:
         df_final = pd.concat(resultado_final)
         
-        # Renomeia colunas para bater com a interface do React (ItemEstoque)
-        # O React espera: id_produto, nome, grupo, custo_unitario, consumo_medio_mensal, qt_estoque, cluster_id
         df_api = df_final.rename(columns={
             'id_item': 'id_produto',
             'ds_item': 'nome',
@@ -116,8 +120,11 @@ def carregar_e_processar_dados():
             'Cluster': 'cluster_id'
         })
         
-        # Preenche vazios (NaN) com 0 e converte para lista de dicionários (JSON)
-        return df_api.fillna(0).to_dict(orient='records')
+        # Preenche NaN com 0 e infinitos com 0 para não quebrar o JSON
+        df_api = df_api.fillna(0).replace([np.inf, -np.inf], 0)
+        
+        print(f"Processamento concluído. Retornando {len(df_api)} itens.")
+        return df_api.to_dict(orient='records')
     
     return []
 
