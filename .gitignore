@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+df_analise.csv.gz
+df_tratado.csv.gz

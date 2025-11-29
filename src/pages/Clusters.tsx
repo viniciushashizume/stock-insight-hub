@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { ClusterInsights } from '@/components/ClusterInsights';
-import { fetchDadosClusters, agruparPorCluster, ItemEstoque } from '@/services/api';
+import { fetchDadosClusters, agruparPorGrupoECluster, ItemEstoque } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Clusters() {
   const [dados, setDados] = useState<ItemEstoque[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -13,6 +15,11 @@ export default function Clusters() {
       try {
         const data = await fetchDadosClusters();
         setDados(data);
+        // Seleciona o primeiro grupo por padrão se houver dados
+        if (data.length > 0) {
+          const firstGroup = data[0].grupo;
+          setSelectedGroup(firstGroup);
+        }
       } catch (error) {
         toast({
           title: "Erro ao carregar dados",
@@ -26,6 +33,9 @@ export default function Clusters() {
     loadData();
   }, [toast]);
 
+  const dadosEstruturados = useMemo(() => agruparPorGrupoECluster(dados), [dados]);
+  const gruposDisponiveis = useMemo(() => Object.keys(dadosEstruturados).sort(), [dadosEstruturados]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -37,36 +47,49 @@ export default function Clusters() {
     );
   }
 
-  const clustersMap = agruparPorCluster(dados);
-  const mediaGeral = {
-    custoTotal: dados.reduce((acc, item) => acc + (item.custo_total || 0), 0) / dados.length,
-    consumo: dados.reduce((acc, item) => acc + item.consumo_medio_mensal, 0) / dados.length
-  };
+  const clustersDoGrupo = selectedGroup ? dadosEstruturados[selectedGroup] : {};
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Análise de Clusters</h1>
-        <p className="text-muted-foreground mt-1">
-          Insights detalhados dos padrões identificados pelo algoritmo K-Means
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Análise de Clusters K-Means</h1>
+          <p className="text-muted-foreground mt-1">
+            Análise detalhada por Grupo de Material
+          </p>
+        </div>
+        <div className="w-full md:w-72">
+          <Select value={selectedGroup} onValueChange={setSelectedGroup}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione um Grupo" />
+            </SelectTrigger>
+            <SelectContent>
+              {gruposDisponiveis.map(grupo => (
+                <SelectItem key={grupo} value={grupo}>{grupo}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <div className="space-y-6">
-        {[0, 1, 2, 3, 4].map(clusterId => {
-          const items = clustersMap.get(clusterId) || [];
-          if (items.length === 0) return null;
+      {selectedGroup && (
+        <div className="space-y-6">
+          <h2 className="text-xl font-semibold border-b pb-2">Grupo: {selectedGroup}</h2>
           
-          return (
+          {Object.entries(clustersDoGrupo).map(([clusterId, items]) => (
             <ClusterInsights
               key={clusterId}
-              clusterId={clusterId}
+              clusterId={Number(clusterId)}
               items={items}
-              mediaGeral={mediaGeral}
+              grupoNome={selectedGroup}
             />
-          );
-        })}
-      </div>
+          ))}
+          
+          {Object.keys(clustersDoGrupo).length === 0 && (
+            <p className="text-muted-foreground">Nenhum dado de cluster encontrado para este grupo.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

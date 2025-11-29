@@ -1,4 +1,4 @@
-import { ScatterChart as RechartsScatter, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts';
+import { ScatterChart as RechartsScatter, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ItemEstoque } from '@/services/api';
 
@@ -14,30 +14,28 @@ const CLUSTER_COLORS = [
   'hsl(var(--cluster-4))',
 ];
 
-const CLUSTER_NAMES: Record<number, string> = {
-  0: "Alto Giro / Custo Médio",
-  1: "Alto Giro / Baixo Custo",
-  2: "Alto Custo / Baixo Giro",
-  3: "Crítico / Uso Esporádico",
-  4: "Moderado / Balanceado"
-};
-
 export function ScatterChartComponent({ data }: ScatterChartProps) {
+  // Pegamos os clusters únicos presentes nos dados
+  const uniqueClusters = Array.from(new Set(data.map(d => d.cluster_id))).sort();
+
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload;
       return (
-        <div className="bg-card border border-border rounded-lg shadow-lg p-4">
-          <p className="font-semibold text-foreground mb-2">{item.nome}</p>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium">Consumo Médio:</span> {item.consumo_medio_mensal} un/mês
-          </p>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium">Custo Unitário:</span> R$ {item.custo_unitario.toFixed(2)}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium">Cluster:</span> {CLUSTER_NAMES[item.cluster_id]}
-          </p>
+        <div className="bg-card border border-border rounded-lg shadow-lg p-4 z-50">
+          <p className="font-semibold text-foreground mb-1">{item.nome}</p>
+          <p className="text-xs text-muted-foreground mb-2">{item.grupo}</p>
+          <div className="space-y-1 text-sm">
+            <p>
+              <span className="font-medium">Consumo:</span> {item.consumo_medio_mensal} un
+            </p>
+            <p>
+              <span className="font-medium">Custo Unit:</span> R$ {item.custo_unitario.toFixed(2)}
+            </p>
+            <p>
+              <span className="font-medium">Cluster:</span> {item.cluster_id}
+            </p>
+          </div>
         </div>
       );
     }
@@ -47,41 +45,37 @@ export function ScatterChartComponent({ data }: ScatterChartProps) {
   return (
     <Card className="col-span-full">
       <CardHeader>
-        <CardTitle>Análise de Dispersão: Consumo vs Custo</CardTitle>
+        <CardTitle>Análise de Dispersão Geral</CardTitle>
         <CardDescription>
-          Visualização dos padrões de consumo e custo por cluster K-Means
+          Visualização de consumo vs custo unitário para todos os grupos
         </CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={500}>
-          <RechartsScatter>
+          <RechartsScatter margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
             <XAxis 
               type="number" 
               dataKey="consumo_medio_mensal" 
-              name="Consumo Médio Mensal"
-              label={{ value: 'Consumo Médio Mensal (unidades)', position: 'insideBottom', offset: -5 }}
-              className="text-muted-foreground"
+              name="Consumo" 
+              label={{ value: 'Consumo Médio (un)', position: 'insideBottom', offset: -10 }}
+              className="text-xs"
             />
             <YAxis 
               type="number" 
               dataKey="custo_unitario" 
-              name="Custo Unitário"
-              label={{ value: 'Custo Unitário (R$)', angle: -90, position: 'insideLeft' }}
-              className="text-muted-foreground"
+              name="Custo" 
+              label={{ value: 'Custo Unit. (R$)', angle: -90, position: 'insideLeft' }}
+              className="text-xs"
             />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend 
-              verticalAlign="top" 
-              height={36}
-              formatter={(value) => CLUSTER_NAMES[parseInt(value.split(' ')[1])]}
-            />
-            {[0, 1, 2, 3, 4].map((clusterId) => (
+            <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+            <Legend />
+            {uniqueClusters.map((clusterId) => (
               <Scatter
                 key={clusterId}
                 name={`Cluster ${clusterId}`}
                 data={data.filter(item => item.cluster_id === clusterId)}
-                fill={CLUSTER_COLORS[clusterId]}
+                fill={CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]}
                 shape="circle"
               />
             ))}
