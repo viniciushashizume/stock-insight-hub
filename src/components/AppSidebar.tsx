@@ -1,4 +1,4 @@
-import { LayoutDashboard, Layers, List, Settings } from "lucide-react";
+import { LayoutDashboard, Layers, List, Settings, Lightbulb} from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -16,6 +16,7 @@ const menuItems = [
   { title: "Visão Geral", url: "/", icon: LayoutDashboard },
   { title: "Análise de Clusters", url: "/clusters", icon: Layers },
   { title: "Lista de Itens", url: "/items", icon: List },
+  { title: "Insights", url: "/insights", icon: Lightbulb },
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 

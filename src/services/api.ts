@@ -89,3 +89,62 @@ export function agruparPorGrupoECluster(dados: ItemEstoque[]) {
   
   return estrutura;
 }
+
+export interface InsightRiskData {
+  id_produto: number;
+  nome: string;
+  grupo: string;
+  cv_consumo: number;
+  cobertura_meses: number;
+  custo_total_acumulado: number;
+  is_critical: boolean;
+}
+
+export interface InsightResponse {
+  data: InsightRiskData[];
+  meta: {
+    total_criticos: number;
+    zona_risco: {
+      cv_min: number;
+      cobertura_max: number;
+    }
+  }
+}
+
+export async function fetchInsightRisco(): Promise<InsightResponse> {
+  try {
+    const response = await fetch('http://localhost:8000/api/insights/risk');
+    if (!response.ok) throw new Error('Falha ao buscar insights');
+    return await response.json();
+  } catch (error) {
+    console.error(error);
+    return { data: [], meta: { total_criticos: 0, zona_risco: { cv_min: 0.8, cobertura_max: 1.0 } } };
+  }
+}
+
+export interface HistoricoData {
+  periodo_str: string;
+  qt_consumo: number;
+}
+
+export interface InsightSeasonalityData {
+  id_produto: number;
+  nome: string;
+  grupo: string;
+  media_consumo: number;
+  razao_pico: number;
+  cv: number;
+  classificacao: "Sazonal/Pico" | "Estável/Linear" | "Neutro";
+  historico: HistoricoData[];
+}
+
+export async function fetchInsightSazonalidade(): Promise<InsightSeasonalityData[]> {
+  try {
+    const response = await fetch('http://localhost:8000/api/insights/seasonality');
+    if (!response.ok) throw new Error('Falha ao buscar insights de sazonalidade');
+    return await response.json();
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}

@@ -10,6 +10,7 @@ import Clusters from "./pages/Clusters";
 import Items from "./pages/Items";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import Insights from "./pages/Insights";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ const App = () => (
                   <Route path="/items" element={<Items />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<NotFound />} />
+                  <Route path="/insights" element={<Insights />} />
                 </Routes>
               </main>
             </div>
