@@ -125,16 +125,19 @@ export async function fetchInsightRisco(): Promise<InsightResponse> {
 export interface HistoricoData {
   periodo_str: string;
   qt_consumo: number;
+  // Campos adicionados para suportar a análise de sazonalidade
+  ano: number;
+  mes: number;
 }
 
 export interface InsightSeasonalityData {
   id_produto: number;
   nome: string;
   grupo: string;
-  media_consumo: number;
+  media: number; // Renomeado de media_consumo para media (conforme backend)
   razao_pico: number;
   cv: number;
-  classificacao: "Sazonal/Pico" | "Estável/Linear" | "Neutro";
+  classificacao: "Sazonal/Pico" | "Estável/Linear" | "Neutro" | "Outros";
   historico: HistoricoData[];
 }
 

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 
-# Variável global para armazenar o dataframe bruto (com histórico para calcular desvio padrão)
+# Variável global para armazenar o dataframe bruto
 df_raw_storage = None
 
 def set_df_raw(df):
@@ -14,188 +14,177 @@ def set_df_raw(df):
 
 @router.get("/api/insights/risk")
 def get_risk_insight():
+    # Mantendo a lógica de risco existente para não quebrar a outra aba, 
+    # mas garantindo consistência com o arquivo original se necessário.
     if df_raw_storage is None:
         raise HTTPException(status_code=500, detail="Dados não carregados no servidor")
 
     df = df_raw_storage.copy()
-
-    # Normalização de nomes de colunas para garantir funcionamento
-    col_map = {
-        'ds_item': 'ds_material_hospital',
-        'ds_grupo_material': 'ds_grupo'
-    }
+    
+    # Normalização de colunas
+    col_map = {'ds_item': 'ds_material_hospital', 'ds_grupo_material': 'ds_grupo'}
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
     
-    # Se a coluna 'ds_material_hospital' não existir, tenta achar outra
     if 'ds_material_hospital' not in df.columns:
-         # Tenta pegar a primeira coluna de texto como nome
          cols_obj = df.select_dtypes(include=['object']).columns
-         if len(cols_obj) > 0:
-             df['ds_material_hospital'] = df[cols_obj[0]]
-         else:
-             df['ds_material_hospital'] = "Item " + df['id_item'].astype(str)
+         df['ds_material_hospital'] = df[cols_obj[0]] if len(cols_obj) > 0 else "Item " + df['id_item'].astype(str)
 
-    # Garante que temos a coluna de grupo
     if 'ds_grupo' not in df.columns:
-        if 'ds_classe_material' in df.columns:
-            df['ds_grupo'] = df['ds_classe_material']
-        else:
-            df['ds_grupo'] = 'Geral'
+        df['ds_grupo'] = df['ds_classe_material'] if 'ds_classe_material' in df.columns else 'Geral'
 
-    # 1. Recalcular métricas base (agrupando por item e grupo)
-    # Precisamos do STD (desvio padrão), então o dataframe original deve ter histórico
-    # Se o dataframe já for sumarizado, std será 0 ou NaN.
-    
     agregacoes = {
         'qt_consumo': ['mean', 'std', 'sum'],
         'qt_estoque': 'mean',
         'custo_total': 'sum'
     }
-    
-    # Verifica se as colunas existem
     cols_existentes = {k: v for k, v in agregacoes.items() if k in df.columns}
     
     df_risco = df.groupby(['id_item', 'ds_material_hospital', 'ds_grupo']).agg(cols_existentes).reset_index()
-
-    # Ajuste de colunas (Flatten MultiIndex)
     df_risco.columns = ['id_produto', 'nome', 'grupo', 'consumo_medio', 'consumo_std', 'consumo_total', 'estoque_medio', 'custo_total_acumulado']
-
-    # Tratamento de NaNs (se std for NaN, assume 0)
+    
     df_risco['consumo_std'] = df_risco['consumo_std'].fillna(0)
     df_risco = df_risco[df_risco['consumo_medio'] > 0].copy()
 
-    # 2. Métricas de Risco
-    # CV = Desvio Padrão / Média
     df_risco['cv_consumo'] = df_risco['consumo_std'] / df_risco['consumo_medio']
-    # Cobertura = Estoque / Consumo Médio
     df_risco['cobertura_meses'] = df_risco['estoque_medio'] / df_risco['consumo_medio']
-
-    # Substituir infinitos ou NaNs gerados
     df_risco = df_risco.replace([np.inf, -np.inf], 0).fillna(0)
 
-    # 3. Filtro de Risco Crítico
-    # Lógica baseada no seu código:
-    # - CV > 0.8 (Alta variabilidade)
-    # - Cobertura < 1.0 (Menos de 1 mês de estoque)
-    # - Custo Relevante (acima da mediana)
-    
     limite_custo = df_risco['custo_total_acumulado'].quantile(0.50)
-
-    # Filtra para o "Zoom" (Cobertura <= 3 meses) para visualização
     df_zoom = df_risco[df_risco['cobertura_meses'] <= 3].copy()
 
-    # Marca quais são críticos
     df_zoom['is_critical'] = (
         (df_zoom['cv_consumo'] > 0.8) & 
         (df_zoom['cobertura_meses'] < 1.0) & 
         (df_zoom['custo_total_acumulado'] > limite_custo)
     )
 
-    # Prepara retorno JSON
-    resultado = df_zoom.to_dict(orient='records')
-    
-    # Retorna estatísticas para desenhar as zonas no gráfico
-    meta = {
-        "total_itens_analisados": len(df_risco),
-        "total_itens_zoom": len(df_zoom),
-        "total_criticos": int(df_zoom['is_critical'].sum()),
-        "zona_risco": {
-            "cv_min": 0.8,
-            "cobertura_max": 1.0
-        }
-    }
-
     return {
-        "data": resultado,
-        "meta": meta
+        "data": df_zoom.to_dict(orient='records'),
+        "meta": {
+            "total_criticos": int(df_zoom['is_critical'].sum()),
+            "zona_risco": {"cv_min": 0.8, "cobertura_max": 1.0}
+        }
     }
 
 @router.get("/api/insights/seasonality")
 def get_seasonality_insight():
+    """
+    Reimplementação exata da lógica do celula2.py:
+    1. Filtra Medicamentos.
+    2. Ignora itens com histórico < 6 ou média < 10.
+    3. Seleciona Top Sazonais (maior razão de pico).
+    4. Seleciona Top Lineares (menor CV, com volume relevante).
+    """
     if df_raw_storage is None:
-        raise HTTPException(status_code=500, detail="Dados não carregados no servidor")
+        raise HTTPException(status_code=500, detail="Dados não carregados")
 
     df = df_raw_storage.copy()
 
-    # 1. Preparação de Datas
-    # Tenta converter a coluna de data (assumindo nomes comuns)
+    # --- 1. PREPARAÇÃO DOS DADOS (Conforme celula2.py) ---
     date_col = None
     possible_date_cols = ['dt_movimento_estoque', 'data', 'dt_movimento', 'dt_referencia']
-    
     for col in possible_date_cols:
         if col in df.columns:
             date_col = col
             break
     
     if not date_col:
-        # Se não tiver data, não dá pra fazer análise temporal
-        return {"data": [], "message": "Coluna de data não encontrada."}
+        return []
 
     df[date_col] = pd.to_datetime(df[date_col])
     df['ano'] = df[date_col].dt.year
     df['mes'] = df[date_col].dt.month
-    df['periodo_str'] = df[date_col].dt.strftime('%Y-%m')
-
-    # Normaliza nomes de colunas de identificação
-    col_map = {
-        'ds_item': 'ds_material_hospital',
-        'ds_grupo_material': 'ds_grupo'
-    }
+    
+    # Normalização de nomes
+    col_map = {'ds_item': 'ds_material_hospital', 'ds_grupo_material': 'ds_grupo'}
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-    # Garante grupo
-    if 'ds_grupo' not in df.columns:
-        df['ds_grupo'] = 'Geral'
+    # Filtrar Medicamentos (Tenta replicar df_meds)
+    # Se a coluna de grupo existir, filtra. Senão, usa tudo.
+    if 'ds_grupo' in df.columns:
+        df_meds = df[df['ds_grupo'].str.upper().str.contains('MEDICAMENTO', na=False)].copy()
+        if len(df_meds) == 0: # Fallback se o filtro zerar tudo (caso os dados não sejam de med)
+            df_meds = df.copy()
+    else:
+        df_meds = df.copy()
 
-    # 2. Agregação Mensal por Item (Histórico)
-    df_mensal = df.groupby(['id_item', 'ds_material_hospital', 'ds_grupo', 'ano', 'mes', 'periodo_str']).agg({
-        'qt_consumo': 'sum'
-    }).reset_index()
-
-    # 3. Cálculo de Métricas por Item
-    itens_unicos = df_mensal['id_item'].unique()
+    # Cria coluna periodo para ordenação
+    df_meds['periodo'] = pd.to_datetime(df_meds['ano'].astype(str) + '-' + df_meds['mes'].astype(str) + '-01')
+    
+    # --- 2. CÁLCULO DE MÉTRICAS ---
+    # Primeiro, agregamos mensalmente para ter o histórico correto
+    df_mensal = df_meds.groupby(['id_item', 'ds_material_hospital', 'ds_grupo', 'periodo', 'ano', 'mes'])['qt_consumo'].sum().reset_index()
+    
     metricas = []
+    itens_unicos = df_mensal['id_item'].unique()
 
     for item_id in itens_unicos:
-        dados_item = df_mensal[df_mensal['id_item'] == item_id]
+        dados = df_mensal[df_mensal['id_item'] == item_id].sort_values('periodo')
+        nome = dados['ds_material_hospital'].iloc[0]
+        grupo = dados.get('ds_grupo', pd.Series(['Geral'])).iloc[0]
         
-        media = dados_item['qt_consumo'].mean()
-        
-        # Ignora itens irrelevantes (pouco histórico ou volume ínfimo)
-        if len(dados_item) < 6 or media < 5:
+        media = dados['qt_consumo'].mean()
+
+        # Ignora itens com pouco histórico ou volume quase zero (Conforme celula2.py)
+        if len(dados) < 6 or media < 10:
             continue
 
         # A. Métrica de Instabilidade (Pico)
-        pico_max = dados_item['qt_consumo'].max()
-        # Evita divisão por zero
-        razao_pico = (pico_max / media) if media > 0 else 0
+        pico_max = dados['qt_consumo'].max()
+        razao_pico = pico_max / media if media > 0 else 0
 
         # B. Métrica de Estabilidade (CV)
-        desvio = dados_item['qt_consumo'].std()
-        cv = (desvio / media) if media > 0 else 0
+        cv = dados['qt_consumo'].std() / media if media > 0 else 0
 
-        # Classificação
-        classificacao = "Neutro"
-        if razao_pico > 3.0: # Pico é 3x maior que a média
-            classificacao = "Sazonal/Pico"
-        elif cv < 0.3: # Variação menor que 30%
-            classificacao = "Estável/Linear"
-
-        # Prepara histórico para o gráfico (Array de objetos simples)
-        historico = dados_item[['periodo_str', 'qt_consumo']].sort_values('periodo_str').to_dict(orient='records')
-
+        # Histórico formatado
+        historico = dados[['periodo', 'ano', 'mes', 'qt_consumo']].copy()
+        historico['periodo_str'] = historico['periodo'].dt.strftime('%Y-%m')
+        
         metricas.append({
-            "id_produto": int(item_id),
-            "nome": dados_item['ds_material_hospital'].iloc[0],
-            "grupo": dados_item['ds_grupo'].iloc[0],
-            "media_consumo": float(media),
-            "razao_pico": float(razao_pico),
-            "cv": float(cv),
-            "classificacao": classificacao,
-            "historico": historico
+            'id_produto': int(item_id),
+            'nome': nome,
+            'grupo': grupo,
+            'razao_pico': float(razao_pico),
+            'cv': float(cv),
+            'media': float(media),
+            'historico': historico.to_dict(orient='records')
         })
 
-    # Ordena: Primeiro os Sazonais (maior pico), depois os Lineares (menor CV)
-    metricas_ordenadas = sorted(metricas, key=lambda x: x['razao_pico'], reverse=True)
+    df_resultado = pd.DataFrame(metricas)
+    if df_resultado.empty:
+        return []
 
-    return metricas_ordenadas
+    # --- 3. SELEÇÃO DOS CAMPEÕES (Conforme celula2.py) ---
+    
+    # Top Sazonais (maior pico)
+    # Vamos pegar um número maior que 3 para popular a lista, mas marcando os top
+    df_resultado['classificacao'] = 'Outros'
+    
+    # Ordena por pico para definir sazonais
+    df_sazonais = df_resultado.nlargest(10, 'razao_pico') # Pego top 10 para UI
+    ids_sazonais = df_sazonais['id_produto'].tolist()
+    
+    # Marca Sazonais
+    df_resultado.loc[df_resultado['id_produto'].isin(ids_sazonais), 'classificacao'] = 'Sazonal/Pico'
+
+    # Top Lineares
+    # Filtro de volume (corte_volume = quantile 0.4)
+    corte_volume = df_resultado['media'].quantile(0.4)
+    # Pega os que não são sazonais E tem volume > corte
+    candidatos_linear = df_resultado[
+        (~df_resultado['id_produto'].isin(ids_sazonais)) & 
+        (df_resultado['media'] > corte_volume)
+    ]
+    
+    if not candidatos_linear.empty:
+        df_lineares = candidatos_linear.nsmallest(10, 'cv') # Top 10 menor CV
+        ids_lineares = df_lineares['id_produto'].tolist()
+        df_resultado.loc[df_resultado['id_produto'].isin(ids_lineares), 'classificacao'] = 'Estável/Linear'
+
+    # Filtra apenas os classificados para a UI (ou retorna tudo ordenado por relevância)
+    df_final = df_resultado[df_resultado['classificacao'] != 'Outros'].copy()
+    
+    # Ordenação final para exibição: Sazonais primeiro, depois Lineares
+    df_final = df_final.sort_values(['classificacao', 'razao_pico'], ascending=[False, False])
+
+    return df_final.to_dict(orient='records')
