@@ -26,16 +26,19 @@ export function ItemsTable({ data }: ItemsTableProps) {
 
   // Extrair lista única de grupos para o filtro
   const grupos = useMemo(() => {
-    const uniqueGroups = new Set(data.map(item => item.grupo));
+    // Garante que item.grupo exista antes de acessar
+    const uniqueGroups = new Set(data.map(item => item.grupo || 'Outros'));
     return Array.from(uniqueGroups).sort();
   }, [data]);
 
   // Filtrar dados
   const filteredData = useMemo(() => {
     return data.filter(item => {
-      const matchesSearch = item.nome.toLowerCase().includes(searchTerm.toLowerCase());
+      // Uso de Optional Chaining (?.) e fallback para string vazia para evitar crash
+      const nomeItem = item.nome || '';
+      const matchesSearch = nomeItem.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesGroup = selectedGroup === 'all' || item.grupo === selectedGroup;
-      const matchesCluster = selectedCluster === 'all' || item.cluster_id.toString() === selectedCluster;
+      const matchesCluster = selectedCluster === 'all' || item.cluster_id?.toString() === selectedCluster;
       return matchesSearch && matchesGroup && matchesCluster;
     });
   }, [data, searchTerm, selectedGroup, selectedCluster]);
@@ -110,7 +113,7 @@ export function ItemsTable({ data }: ItemsTableProps) {
                   <tr 
                     key={item.id_produto} 
                     className="hover:bg-muted/50 transition-colors border-l-4"
-                    style={{ borderLeftColor: CLUSTER_COLORS[item.cluster_id % CLUSTER_COLORS.length] }}
+                    style={{ borderLeftColor: CLUSTER_COLORS[(item.cluster_id || 0) % CLUSTER_COLORS.length] }}
                   >
                     <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-foreground">
                       {item.id_produto}
@@ -125,21 +128,21 @@ export function ItemsTable({ data }: ItemsTableProps) {
                       <Badge 
                         variant="outline" 
                         style={{ 
-                          borderColor: CLUSTER_COLORS[item.cluster_id % CLUSTER_COLORS.length],
-                          color: CLUSTER_COLORS[item.cluster_id % CLUSTER_COLORS.length]
+                          borderColor: CLUSTER_COLORS[(item.cluster_id || 0) % CLUSTER_COLORS.length],
+                          color: CLUSTER_COLORS[(item.cluster_id || 0) % CLUSTER_COLORS.length]
                         }}
                       >
                         {item.cluster_id}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-foreground">
-                      R$ {item.custo_unitario.toFixed(2)}
+                      R$ {(item.custo_unitario || 0).toFixed(2)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-foreground">
-                      {item.consumo_medio_mensal.toLocaleString('pt-BR')}
+                      {(item.consumo_medio_mensal || 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-foreground">
-                      {item.qt_estoque.toLocaleString('pt-BR')}
+                      {(item.qt_estoque || 0).toLocaleString('pt-BR')}
                     </td>
                   </tr>
                 ))}
