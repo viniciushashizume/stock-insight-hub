@@ -151,3 +151,31 @@ export async function fetchInsightSazonalidade(): Promise<InsightSeasonalityData
     return [];
   }
 }
+
+export interface ItemStrategy {
+  id_item: number;
+  ds_material: string;
+  Classe_ABC: string;
+  Classe_XYZ: string;
+  dias_cobertura: number;
+  valor_imobilizado: number;
+  custo_total: number;
+}
+
+export interface StrategyResponse {
+  matrix: Record<string, Record<string, number>>; // Ex: {'X': {'A': 10}}
+  scatter_data: ItemStrategy[];
+  zombies: ItemStrategy[];
+}
+
+export async function fetchInsightEstrategia(): Promise<StrategyResponse> {
+  try {
+    const response = await fetch('http://localhost:8000/api/insights/strategy');
+    if (!response.ok) throw new Error('Falha ao buscar dados estratégicos');
+    return await response.json();
+  } catch (error) {
+    console.error(error);
+    // Retorno vazio seguro em caso de erro
+    return { matrix: {}, scatter_data: [], zombies: [] };
+  }
+}

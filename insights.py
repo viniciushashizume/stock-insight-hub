@@ -212,3 +212,119 @@ def get_seasonality_insight():
     df_final = df_final.sort_values(['classificacao', 'razao_pico'], ascending=[False, False])
 
     return df_final.to_dict(orient='records')
+
+
+@router.get("/api/insights/strategy")
+def get_strategic_insight():
+    """
+    Implementação Fiel de 'celula3.py':
+    1. Matriz ABC-XYZ (Classificação por Valor acumulado e Previsibilidade).
+    2. Eficiência de Capital (Dias de Cobertura x Valor Imobilizado).
+    3. Lista de 'Zumbis' (Excesso > 90 dias).
+    """
+    if df_raw_storage is None:
+        raise HTTPException(status_code=500, detail="Dados não carregados")
+
+    df = df_raw_storage.copy()
+
+    # Normalização de nomes (igual ao notebook)
+    col_map = {
+        'ds_item': 'ds_material_hospital', 
+        'ds_grupo_material': 'ds_grupo',
+        'ds_classe_material': 'ds_classe'
+    }
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+    # --- 1. PREPARAR DADOS AGREGADOS (Conforme celula3.py) ---
+    # Garante colunas necessárias
+    cols_agg = {
+        'custo_total': 'sum',
+        'qt_consumo': ['mean', 'std'],
+        'qt_estoque': 'mean'
+    }
+    # Filtra colunas que realmente existem no DF
+    cols_existentes = [c for c in ['id_item', 'ds_material_hospital', 'ds_classe'] if c in df.columns]
+    
+    # Se faltar alguma coluna essencial, cria fallback
+    if 'custo_total' not in df.columns and 'custo_unitario' in df.columns and 'qt_consumo' in df.columns:
+        df['custo_total'] = df['custo_unitario'] * df['qt_consumo']
+
+    df_agg = df.groupby(cols_existentes).agg({
+        k: v for k, v in cols_agg.items() if k in df.columns
+    }).reset_index()
+
+    # Ajustar nomes das colunas (Flattening MultiIndex)
+    # A ordem exata depende da versão do pandas, então vamos renomear com segurança
+    df_agg.columns = [
+        'id_item', 'ds_material', 'ds_classe', 
+        'custo_total', 'consumo_medio', 'consumo_std', 'estoque_medio'
+    ]
+    
+    df_agg = df_agg.fillna(0)
+    df_agg = df_agg[df_agg['consumo_medio'] > 0].copy()
+
+    # --- PARTE A: MATRIZ ABC-XYZ ---
+    
+    # Passo A1: Classificação ABC (Por Valor)
+    df_agg = df_agg.sort_values('custo_total', ascending=False)
+    df_agg['acumulado'] = df_agg['custo_total'].cumsum()
+    total_custo = df_agg['custo_total'].sum()
+    df_agg['perc_acumulado'] = df_agg['acumulado'] / total_custo if total_custo > 0 else 0
+
+    def define_abc(x):
+        if x <= 0.80: return 'A'
+        elif x <= 0.95: return 'B'
+        else: return 'C'
+
+    df_agg['Classe_ABC'] = df_agg['perc_acumulado'].apply(define_abc)
+
+    # Passo A2: Classificação XYZ (Por Previsibilidade/CV)
+    df_agg['cv'] = df_agg['consumo_std'] / df_agg['consumo_medio']
+
+    def define_xyz(x):
+        if x <= 0.5: return 'X'
+        elif x <= 1.0: return 'Y'
+        else: return 'Z'
+
+    df_agg['Classe_XYZ'] = df_agg['cv'].apply(define_xyz)
+
+    # Dados para Heatmap (Contagem)
+    matriz_counts = df_agg.pivot_table(
+        index='Classe_ABC', 
+        columns='Classe_XYZ', 
+        values='id_item', 
+        aggfunc='count'
+    ).fillna(0).to_dict()
+
+    # --- PARTE B: CAÇA AO DINHEIRO PARADO (EFICIÊNCIA) ---
+
+    # Passo B1: Calcular Dias de Cobertura
+    # (df_agg['estoque_medio'] / df_agg['consumo_medio']) * 30
+    df_agg['dias_cobertura'] = (df_agg['estoque_medio'] / df_agg['consumo_medio']) * 30
+
+    # Estimativa do Valor Imobilizado
+    # custo_unit_estimado = custo_total / (consumo_medio * 12)
+    # valor_imobilizado = estoque_medio * custo_unit_estimado
+    df_agg['custo_unit_estimado'] = df_agg['custo_total'] / (df_agg['consumo_medio'] * 12)
+    df_agg['valor_imobilizado'] = df_agg['estoque_medio'] * df_agg['custo_unit_estimado']
+
+    # Limpeza de Infinitos/NaN
+    df_agg = df_agg.replace([np.inf, -np.inf], 0).fillna(0)
+
+    # Filtro visual (igual ao celula3.py: dias_cobertura < 365 para o gráfico)
+    df_vis = df_agg[df_agg['dias_cobertura'] < 365].copy()
+
+    # Listar os "Zumbis" ( > 90 dias, Top 5 valor imobilizado)
+    zumbis = df_vis[df_vis['dias_cobertura'] > 90].sort_values('valor_imobilizado', ascending=False).head(5)
+
+    return {
+        "matrix": matriz_counts, # Estrutura: {'X': {'A': 10, 'B': 5...}, 'Y': ...}
+        "scatter_data": df_vis[[
+            'id_item', 'ds_material', 'Classe_ABC', 'Classe_XYZ', 
+            'dias_cobertura', 'valor_imobilizado', 'custo_total'
+        ]].to_dict(orient='records'),
+        "zombies": zumbis[[
+            'id_item', 'ds_material', 'dias_cobertura', 
+            'valor_imobilizado', 'Classe_ABC'
+        ]].to_dict(orient='records')
+    }
