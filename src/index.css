@@ -45,9 +45,9 @@ All colors MUST be HSL.
     
     /* Cluster Colors */
     --cluster-0: 217 91% 60%;
-    --cluster-1: 180 62% 45%;
+    --cluster-1: 0 72% 51%;
     --cluster-2: 38 92% 50%;
-    --cluster-3: 0 72% 51%;
+    --cluster-3: 180 62% 45%;
     --cluster-4: 271 81% 56%;
     
     /* Chart Colors */
@@ -116,6 +116,10 @@ All colors MUST be HSL.
 @layer base {
   * {
     @apply border-border;
+  }
+
+  html {
+    font-size: 18px;
   }
 
   body {

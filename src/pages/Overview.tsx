@@ -154,46 +154,41 @@ export default function Overview() {
         />
       </div>
 
-      <div className="grid gap-6 md:grid-cols-7">
-        {/* Gráfico de Distribuição de Clusters */}
-        <Card className="md:col-span-3">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Distribuição de Clusters
-            </CardTitle>
-            <CardDescription>
-              Quantidade de itens por cluster em: <strong>{grupoSelecionado}</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dadosDistribuicao}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                  <Tooltip 
-                    cursor={{ fill: 'transparent' }}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Bar dataKey="quantidade" radius={[4, 4, 0, 0]}>
-                    {dadosDistribuicao.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={CLUSTER_COLORS[entry.clusterId % CLUSTER_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Gráfico de Distribuição de Clusters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Distribuição de Clusters
+          </CardTitle>
+          <CardDescription>
+            Quantidade de itens por cluster em: <strong>{grupoSelecionado}</strong>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dadosDistribuicao}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                <Tooltip 
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Bar dataKey="quantidade" radius={[4, 4, 0, 0]}>
+                  {dadosDistribuicao.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={CLUSTER_COLORS[entry.clusterId % CLUSTER_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Gráfico de Dispersão (Scatter) */}
-        <div className="md:col-span-4">
-           {/* O ScatterChartComponent já encapsula um Card, então passamos apenas os dados filtrados */}
-           <ScatterChartComponent data={dadosFiltrados} />
-        </div>
-      </div>
+      {/* Gráfico de Dispersão (Scatter) */}
+      <ScatterChartComponent data={dadosFiltrados} />
     </div>
   );
 }
