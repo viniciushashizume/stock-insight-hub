@@ -94,6 +94,7 @@ export interface InsightRiskData {
   id_produto: number;
   nome: string;
   grupo: string;
+  consumo_medio: number;
   cv_consumo: number;
   cobertura_meses: number;
   custo_total_acumulado: number;
@@ -177,5 +178,37 @@ export async function fetchInsightEstrategia(): Promise<StrategyResponse> {
     console.error(error);
     // Retorno vazio seguro em caso de erro
     return { matrix: {}, scatter_data: [], zombies: [] };
+  }
+}
+
+// --- NOVOS: Interfaces e Fetch para Análise de Inflação ---
+
+export interface InflationItem {
+  id_item: number;
+  ds_material_hospital: string;
+  inflacao_acumulada: number;
+}
+
+export interface InflationHistory {
+  id_item: number;
+  ds_material_hospital: string;
+  data_str: string;
+  custo_unitario: number;
+}
+
+export interface InflationResponse {
+  top_items: InflationItem[];
+  history: InflationHistory[];
+}
+
+export async function fetchInsightInflacao(): Promise<InflationResponse> {
+  try {
+    const response = await fetch('http://localhost:8000/api/insights/inflation');
+    if (!response.ok) throw new Error('Falha ao buscar insights de inflação');
+    return await response.json();
+  } catch (error) {
+    console.error(error);
+    // Retorno seguro em caso de erro
+    return { top_items: [], history: [] };
   }
 }

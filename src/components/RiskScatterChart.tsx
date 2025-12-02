@@ -7,11 +7,11 @@ interface RiskScatterChartProps {
   data: InsightRiskData[];
   cvLimit: number;
   coverageLimit: number;
+  isLogScale?: boolean; // <--- CORREÇÃO: Adicionado
 }
 
-export function RiskScatterChart({ data, cvLimit, coverageLimit }: RiskScatterChartProps) {
+export function RiskScatterChart({ data, cvLimit, coverageLimit, isLogScale = false }: RiskScatterChartProps) {
   
-  // Custom Tooltip para mostrar detalhes do risco
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload;
@@ -72,13 +72,14 @@ export function RiskScatterChart({ data, cvLimit, coverageLimit }: RiskScatterCh
                 dataKey="cobertura_meses" 
                 name="Cobertura" 
                 label={{ value: 'Meses de Estoque', angle: -90, position: 'insideLeft' }}
-                domain={[0, 3]} // Focando no zoom conforme seu código (<= 3)
+                // CORREÇÃO: Lógica para suportar Log Scale ou Zoom Fixo
+                scale={isLogScale ? "log" : "auto"}
+                domain={isLogScale ? [0.01, 'auto'] : [0, 3]}
+                allowDataOverflow={!isLogScale} // Só corta no zoom se não for log
               />
               
               <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
 
-              {/* ZONA DE PERIGO (Replicando o axvspan e axhline do Python) */}
-              {/* No Recharts usamos ReferenceArea. A área vermelha é CV > 0.8 e Cobertura < 1.0 */}
               <ReferenceArea 
                 x1={cvLimit} 
                 y1={0} 

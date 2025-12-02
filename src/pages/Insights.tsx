@@ -3,45 +3,50 @@ import {
   fetchInsightRisco, 
   fetchInsightSazonalidade, 
   fetchInsightEstrategia, 
+  fetchInsightInflacao, // Certifique-se que está importado
   InsightRiskData, 
   InsightSeasonalityData, 
   StrategyResponse,
-  ItemStrategy 
+  ItemStrategy,
+  InflationResponse
 } from '@/services/api';
 import { RiskScatterChart } from '@/components/RiskScatterChart';
 import { SeasonalityAnalysis } from '@/components/SeasonalityAnalysis';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, CalendarClock, LayoutGrid, DollarSign } from 'lucide-react';
+import { AlertTriangle, CalendarClock, LayoutGrid, DollarSign, TrendingUp } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch"; 
 import { Label } from "@/components/ui/label";
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Label as RechartsLabel, Legend, Cell } from 'recharts';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Label as RechartsLabel, Legend, Cell, LineChart, Line } from 'recharts';
 
 export default function Insights() {
   const [riskData, setRiskData] = useState<InsightRiskData[]>([]);
   const [seasonalityData, setSeasonalityData] = useState<InsightSeasonalityData[]>([]);
   const [strategyData, setStrategyData] = useState<StrategyResponse | null>(null);
+  const [inflationData, setInflationData] = useState<InflationResponse | null>(null);
   const [riskMeta, setRiskMeta] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
   // Controle da Escala Logarítmica
-  const [isLogScale, setIsLogScale] = useState(true);
+  const [isLogScale, setIsLogScale] = useState(false); // Default false para risco
 
   useEffect(() => {
     async function load() {
       try {
-        const [riskRes, seasonalRes, strategyRes] = await Promise.all([
+        const [riskRes, seasonalRes, strategyRes, inflationRes] = await Promise.all([
             fetchInsightRisco(),
             fetchInsightSazonalidade(),
-            fetchInsightEstrategia()
+            fetchInsightEstrategia(),
+            fetchInsightInflacao()
         ]);
         
         setRiskData(Array.isArray(riskRes.data) ? riskRes.data : []);
         setRiskMeta(riskRes.meta || {});
         setSeasonalityData(Array.isArray(seasonalRes) ? seasonalRes : []);
         setStrategyData(strategyRes);
+        setInflationData(inflationRes);
         
       } catch (e) {
         console.error("Erro crítico ao carregar insights:", e);
@@ -52,296 +57,304 @@ export default function Insights() {
     load();
   }, []);
 
-  const scatterDataGrouped = useMemo(() => {
-    if (!strategyData?.scatter_data) return { a: [], b: [], c: [] };
-    
-    // Tratamento para evitar erro de Log(0) ou Log(negativo)
-    const safeData = strategyData.scatter_data.map(d => ({
-        ...d,
-        valor_imobilizado: d.valor_imobilizado <= 0 ? 0.01 : d.valor_imobilizado
-    }));
-
-    const groups: { a: ItemStrategy[], b: ItemStrategy[], c: ItemStrategy[] } = { a: [], b: [], c: [] };
-    
-    safeData.forEach(item => {
-        if (item.Classe_ABC === 'A') groups.a.push(item);
-        else if (item.Classe_ABC === 'B') groups.b.push(item);
-        else groups.c.push(item);
-    });
-    return groups;
-  }, [strategyData]);
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-full min-h-[400px]">
-        <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Processando inteligência de estoque...</p>
-        </div>
-    </div>
-  );
-
-  const MatrixCell = ({ count, label, subtext, colorClass }: any) => (
-    <div className={`p-4 rounded-lg border ${colorClass} flex flex-col items-center justify-center text-center h-28`}>
-        <span className="text-2xl font-bold">{count || 0}</span>
-        <span className="text-xs font-bold uppercase mt-1">{label}</span>
-        <span className="text-[10px] opacity-80 mt-1 leading-tight">{subtext}</span>
-    </div>
-  );
-
-  const getMatrixCount = (row: string, col: string) => {
+  // ... (getMatrixValue e formatYAxis) ...
+  const getMatrixValue = (row: string, col: string) => {
     return strategyData?.matrix?.[col]?.[row] || 0;
   };
 
   const formatYAxis = (value: number) => {
-    if (value >= 1000000) return `R$${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `R$${(value / 1000).toFixed(0)}k`;
-    return `R$${value}`;
+      if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+      if (value >= 1000) return `${(value / 1000).toFixed(0)}k`;
+      return value.toString();
   };
 
+  // CORREÇÃO AQUI: Retorno do useMemo agora sempre tem o formato correto { data: [], lines: [] }
+  const inflationChartData = useMemo(() => {
+    if (!inflationData?.history) return { data: [], lines: [] };
+    
+    const groupedByDate: Record<string, any> = {};
+    const items = new Set<string>();
+
+    inflationData.history.forEach(h => {
+        const date = h.data_str.substring(0, 7); // YYYY-MM
+        if (!groupedByDate[date]) {
+            groupedByDate[date] = { name: date };
+        }
+        groupedByDate[date][h.ds_material_hospital] = h.custo_unitario;
+        items.add(h.ds_material_hospital);
+    });
+
+    return {
+        data: Object.values(groupedByDate).sort((a, b) => a.name.localeCompare(b.name)),
+        lines: Array.from(items)
+    };
+  }, [inflationData]);
+
+  const colors = ["#ef4444", "#f97316", "#eab308", "#3b82f6", "#8b5cf6"];
+
+  if (loading) {
+    return <div className="p-8 flex justify-center">Carregando análises avançadas...</div>;
+  }
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Central de Insights</h1>
-        <p className="text-muted-foreground mt-1">
-          Análise avançada de comportamento, riscos e eficiência de capital.
-        </p>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Insights de IA</h1>
+          <p className="text-muted-foreground mt-1">
+            Análises preditivas e detecção de anomalias
+          </p>
+        </div>
       </div>
 
-      <Tabs defaultValue="strategy" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 lg:w-[600px]">
-          <TabsTrigger value="risk" className="flex gap-2 items-center">
-            <AlertTriangle className="h-4 w-4" /> 
-            Risco de Ruptura
-          </TabsTrigger>
-          <TabsTrigger value="seasonality" className="flex gap-2 items-center">
-            <CalendarClock className="h-4 w-4" /> 
-            Padrões de Consumo
-          </TabsTrigger>
-          <TabsTrigger value="strategy" className="flex gap-2 items-center">
-             <LayoutGrid className="h-4 w-4" />
-             Estratégia & Eficiência
-          </TabsTrigger>
+      <Tabs defaultValue="risco" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="risco">Risco de Ruptura</TabsTrigger>
+          <TabsTrigger value="sazonalidade">Sazonalidade</TabsTrigger>
+          <TabsTrigger value="estrategia">Estratégia ABC/XYZ</TabsTrigger>
+          <TabsTrigger value="inflacao">Inflação de Custos</TabsTrigger> 
         </TabsList>
 
-        <TabsContent value="risk" className="space-y-6 mt-6">
-            <RiskScatterChart data={riskData} cvLimit={riskMeta?.zona_risco?.cv_min || 0.8} coverageLimit={riskMeta?.zona_risco?.cobertura_max || 1.0} />
-        </TabsContent>
-
-        <TabsContent value="seasonality" className="space-y-6 mt-6">
-            <SeasonalityAnalysis data={seasonalityData} />
-        </TabsContent>
-
-        <TabsContent value="strategy" className="space-y-6 mt-6">
-            
-            {/* PARTE A: MATRIZ ABC-XYZ */}
-            <div className="grid lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-1">
-                    <CardHeader>
-                        <CardTitle className="text-lg">Matriz ABC-XYZ</CardTitle>
-                        <CardDescription>Onde focar o esforço de gestão?</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-3 gap-2">
-                            <div className="col-start-2 text-center text-xs font-bold text-muted-foreground">X (Estável)</div>
-                            <div className="col-start-3 text-center text-xs font-bold text-muted-foreground">Z (Instável)</div>
-
-                            <div className="flex items-center justify-center text-xs font-bold text-muted-foreground -rotate-90">A (Alto $)</div>
-                            <MatrixCell 
-                                count={getMatrixCount('A', 'X')} 
-                                label="AX" 
-                                subtext="Contratos Just-in-Time" 
-                                colorClass="bg-blue-100 text-blue-900 border-blue-200"
-                            />
-                            <MatrixCell 
-                                count={getMatrixCount('A', 'Z') + getMatrixCount('A', 'Y')} 
-                                label="AZ/AY" 
-                                subtext="Foco TOTAL do Gestor" 
-                                colorClass="bg-red-100 text-red-900 border-red-200 ring-2 ring-red-400 ring-offset-2"
-                            />
-
-                            <div className="flex items-center justify-center text-xs font-bold text-muted-foreground -rotate-90">C (Baixo $)</div>
-                            <MatrixCell 
-                                count={getMatrixCount('C', 'X')} 
-                                label="CX" 
-                                subtext="Reposição Automática" 
-                                colorClass="bg-green-100 text-green-900 border-green-200"
-                            />
-                            <MatrixCell 
-                                count={getMatrixCount('C', 'Z') + getMatrixCount('C', 'Y')} 
-                                label="CZ/CY" 
-                                subtext="Estoque de Segurança" 
-                                colorClass="bg-gray-100 text-gray-700 border-gray-200"
-                            />
-                        </div>
-                        <div className="mt-4 text-xs text-muted-foreground space-y-1">
-                            <p><strong>AX:</strong> Item caro e previsível. Negocie entregas programadas.</p>
-                            <p><strong>AZ:</strong> Item caro e imprevisível. Risco alto de sobrar ($ parado) ou faltar.</p>
-                            <p><strong>CX:</strong> Item barato e previsível. Automatize e esqueça.</p>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* PARTE B: SCATTERPLOT DE EFICIÊNCIA */}
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <CardTitle className="flex items-center gap-2">
-                                    <DollarSign className="h-5 w-5 text-green-600"/>
-                                    Eficiência de Estoque
-                                </CardTitle>
-                                <CardDescription>
-                                    Relação entre Dias de Cobertura (X) e Valor Imobilizado (Y).
-                                </CardDescription>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                                <Switch 
-                                    id="log-scale" 
-                                    checked={isLogScale}
-                                    onCheckedChange={setIsLogScale}
-                                />
-                                <Label htmlFor="log-scale" className="text-sm font-medium">
-                                    Escala Log
-                                </Label>
-                            </div>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="h-[450px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            {/* AJUSTE 1: Aumentei margin left para 80 para afastar o rótulo dos números */}
-                            <ScatterChart margin={{ top: 20, right: 20, bottom: 40, left: 80 }}>
-                                <CartesianGrid stroke="#e5e7eb" vertical={false} />
-                                <XAxis 
-                                    type="number" 
-                                    dataKey="dias_cobertura" 
-                                    name="Dias de Cobertura" 
-                                    unit="d" 
-                                    domain={[0, 180]}
-                                    tickLine={false}
-                                    axisLine={false}
-                                    // AJUSTE 2: Padding para afastar dados das bordas laterais
-                                    padding={{ left: 20, right: 20 }}
-                                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                                    label={{ value: 'Dias de Cobertura (Estoque)', position: 'insideBottom', offset: -20, fill: '#6b7280', fontSize: 12 }}
-                                />
-                                <YAxis 
-                                    type="number" 
-                                    dataKey="valor_imobilizado" 
-                                    name="Valor Imobilizado" 
-                                    unit="R$" 
-                                    scale={isLogScale ? "log" : "auto"}
-                                    domain={isLogScale ? ['auto', 'auto'] : [0, 'auto']}
-                                    allowDataOverflow={true} 
-                                    tickLine={false}
-                                    axisLine={false}
-                                    // AJUSTE 2: Padding para afastar dados das bordas superior/inferior
-                                    padding={{ top: 20, bottom: 20 }}
-                                    tick={{ fill: '#6b7280', fontSize: 12 }}
-                                    tickFormatter={formatYAxis}
-                                    // AJUSTE 3: Label posicionado com 'insideLeft' mas com a margem esquerda aumentada
-                                    label={{ 
-                                        value: 'Valor Imobilizado', 
-                                        angle: -90, 
-                                        position: 'insideLeft', 
-                                        fill: '#6b7280', 
-                                        fontSize: 12,
-                                        style: { textAnchor: 'middle' }
-                                    }}
-                                />
-                                <RechartsTooltip 
-                                    cursor={{ stroke: '#9ca3af', strokeWidth: 1, strokeDasharray: '3 3' }}
-                                    content={({ active, payload }) => {
-                                        if (active && payload && payload.length) {
-                                            const data = payload[0].payload;
-                                            let headerColor = "text-gray-700";
-                                            if (data.Classe_ABC === 'A') headerColor = "text-red-600";
-                                            if (data.Classe_ABC === 'B') headerColor = "text-amber-600";
-                                            if (data.Classe_ABC === 'C') headerColor = "text-emerald-600";
-
-                                            return (
-                                                <div className="bg-white p-3 border rounded-lg shadow-md text-sm">
-                                                    <p className={`font-bold ${headerColor} mb-1`}>{data.ds_material}</p>
-                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                                        <span>Classe:</span>
-                                                        <span className="font-medium text-foreground">{data.Classe_ABC}{data.Classe_XYZ}</span>
-                                                        <span>Imobilizado:</span>
-                                                        <span className="font-medium text-foreground">R$ {data.valor_imobilizado.toLocaleString('pt-BR', {maximumFractionDigits: 0})}</span>
-                                                        <span>Cobertura:</span>
-                                                        <span className="font-medium text-foreground">{data.dias_cobertura.toFixed(0)} dias</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        }
-                                        return null;
-                                    }}
-                                />
-                                <ReferenceLine x={30} stroke="#10b981" strokeDasharray="3 3" strokeWidth={2}>
-                                    <RechartsLabel value="Meta (30d)" position="insideTopRight" fill="#10b981" fontSize={12} fontWeight="bold"/>
-                                </ReferenceLine>
-                                <ReferenceLine x={90} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={2}>
-                                    <RechartsLabel value="Alerta (>90d)" position="insideTopRight" fill="#ef4444" fontSize={12} fontWeight="bold" />
-                                </ReferenceLine>
-                                
-                                <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 500 }}/>
-
-                                <Scatter name="Classe A (Alto Valor)" data={scatterDataGrouped.a} fill="#ef4444" fillOpacity={0.7}>
-                                    {scatterDataGrouped.a.map((entry, index) => <Cell key={`cell-${index}`} stroke="#b91c1c" strokeWidth={1} /> )}
-                                </Scatter>
-                                <Scatter name="Classe B (Médio Valor)" data={scatterDataGrouped.b} fill="#f59e0b" fillOpacity={0.7}>
-                                    {scatterDataGrouped.b.map((entry, index) => <Cell key={`cell-${index}`} stroke="#b45309" strokeWidth={1} /> )}
-                                </Scatter>
-                                <Scatter name="Classe C (Baixo Valor)" data={scatterDataGrouped.c} fill="#10b981" fillOpacity={0.6}>
-                                    {scatterDataGrouped.c.map((entry, index) => <Cell key={`cell-${index}`} stroke="#047857" strokeWidth={1} /> )}
-                                </Scatter>
-
-                            </ScatterChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* PARTE C: LISTA DE ZUMBIS */}
-            <Card className="border-red-200">
-                <CardHeader className="bg-red-50 rounded-t-lg">
-                    <CardTitle className="text-red-800 flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5"/>
-                        Top "Zumbis" (Estoque em Excesso {'>'} 90 dias)
-                    </CardTitle>
+        <TabsContent value="risco" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Itens Críticos</CardTitle>
+                <AlertTriangle className="h-4 w-4 text-destructive" />
                 </CardHeader>
-                <CardContent className="pt-0">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Material</TableHead>
-                                <TableHead>Classe</TableHead>
-                                <TableHead className="text-right">Dias de Cobertura</TableHead>
-                                <TableHead className="text-right">Valor Parado (Imobilizado)</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {strategyData?.zombies?.map((item) => (
-                                <TableRow key={item.id_item}>
-                                    <TableCell className="font-medium">{item.ds_material}</TableCell>
-                                    <TableCell><Badge variant="outline" className={item.Classe_ABC === 'A' ? 'border-red-500 text-red-600' : ''}>{item.Classe_ABC}{item.Classe_XYZ}</Badge></TableCell>
-                                    <TableCell className="text-right font-bold text-red-600">
-                                        {item.dias_cobertura.toFixed(0)} dias
-                                    </TableCell>
-                                    <TableCell className="text-right text-red-800 font-medium">
-                                        R$ {item.valor_imobilizado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                            {(!strategyData?.zombies || strategyData.zombies.length === 0) && (
-                                <TableRow>
-                                    <TableCell colSpan={4} className="text-center h-24 text-muted-foreground">
-                                        Nenhum excesso crítico encontrado. Parabéns!
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
+                <CardContent>
+                <div className="text-2xl font-bold">{riskMeta?.total_criticos || 0}</div>
+                <p className="text-xs text-muted-foreground">
+                    Alto risco de falta com demanda instável
+                </p>
                 </CardContent>
             </Card>
+          </div>
+
+          <Card className="col-span-4">
+             <CardHeader>
+               <div className="flex items-center justify-between">
+                 <div>
+                    <CardTitle>Matriz de Risco</CardTitle>
+                    <CardDescription>
+                        Relação entre Instabilidade (CV) e Cobertura de Estoque
+                    </CardDescription>
+                 </div>
+                 <div className="flex items-center space-x-2">
+                    <Switch id="log-scale" checked={isLogScale} onCheckedChange={setIsLogScale} />
+                    <Label htmlFor="log-scale">Escala Log (Geral)</Label>
+                 </div>
+               </div>
+             </CardHeader>
+             <CardContent className="pl-0">
+                {/* CORREÇÃO: Passando a prop que agora existe no componente */}
+                <RiskScatterChart 
+                    data={riskData} 
+                    cvLimit={riskMeta?.zona_risco?.cv_min || 0.8} 
+                    coverageLimit={riskMeta?.zona_risco?.cobertura_max || 1.0}
+                    isLogScale={isLogScale} 
+                />
+             </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+                <CardTitle>Detalhamento de Itens Críticos</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead>Grupo</TableHead>
+                            <TableHead className="text-right">Consumo Médio</TableHead>
+                            <TableHead className="text-right">CV (Instab.)</TableHead>
+                            <TableHead className="text-right">Cobertura (Meses)</TableHead>
+                            <TableHead className="text-right">Custo Total</TableHead>
+                            <TableHead>Status</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {riskData.filter(i => i.is_critical).slice(0, 10).map((item) => (
+                            <TableRow key={item.id_produto}>
+                                <TableCell className="font-medium text-xs">{item.nome}</TableCell>
+                                <TableCell className="text-xs">{item.grupo}</TableCell>
+                                {/* CORREÇÃO: Consumo Médio agora existe na interface */}
+                                <TableCell className="text-right">{item.consumo_medio.toFixed(1)}</TableCell>
+                                <TableCell className="text-right text-red-600 font-bold">{item.cv_consumo.toFixed(2)}</TableCell>
+                                <TableCell className="text-right text-red-600 font-bold">{item.cobertura_meses.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">R$ {item.custo_total_acumulado.toLocaleString()}</TableCell>
+                                <TableCell><Badge variant="destructive">Crítico</Badge></TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="sazonalidade" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-1">
+                <SeasonalityAnalysis data={seasonalityData} />
+            </div>
+        </TabsContent>
+
+        <TabsContent value="estrategia" className="space-y-4">
+           {strategyData && (
+             <>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <Card>
+                       <CardHeader><CardTitle>Matriz ABC-XYZ</CardTitle><CardDescription>Distribuição de Itens</CardDescription></CardHeader>
+                       <CardContent>
+                           <div className="grid grid-cols-4 gap-2 text-center text-sm">
+                               <div className="font-bold"></div>
+                               <div className="font-bold text-blue-600">X (Estável)</div>
+                               <div className="font-bold text-blue-600">Y (Variável)</div>
+                               <div className="font-bold text-blue-600">Z (Instável)</div>
+
+                               <div className="font-bold text-green-700 flex items-center justify-center">A (Alto Valor)</div>
+                               <div className="bg-blue-100 p-4 rounded border font-bold text-lg">{getMatrixValue('A', 'X')}</div>
+                               <div className="bg-blue-100 p-4 rounded border font-bold text-lg">{getMatrixValue('A', 'Y')}</div>
+                               <div className="bg-red-100 p-4 rounded border font-bold text-lg text-red-700">{getMatrixValue('A', 'Z')}</div>
+
+                               <div className="font-bold text-green-700 flex items-center justify-center">B (Médio)</div>
+                               <div className="bg-blue-50 p-4 rounded border">{getMatrixValue('B', 'X')}</div>
+                               <div className="bg-blue-50 p-4 rounded border">{getMatrixValue('B', 'Y')}</div>
+                               <div className="bg-orange-50 p-4 rounded border">{getMatrixValue('B', 'Z')}</div>
+
+                               <div className="font-bold text-green-700 flex items-center justify-center">C (Baixo)</div>
+                               <div className="bg-green-50 p-4 rounded border">{getMatrixValue('C', 'X')}</div>
+                               <div className="bg-green-50 p-4 rounded border">{getMatrixValue('C', 'Y')}</div>
+                               <div className="bg-gray-50 p-4 rounded border">{getMatrixValue('C', 'Z')}</div>
+                           </div>
+                       </CardContent>
+                   </Card>
+                   
+                   <Card>
+                        <CardHeader>
+                            <CardTitle>Top "Zumbis" de Estoque</CardTitle>
+                            {/* CORREÇÃO: Usando entidade HTML &gt; em vez de > solto */}
+                            <CardDescription>Itens parados com alto valor imobilizado (&gt; 90 dias)</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow><TableHead>Item</TableHead><TableHead className="text-right">Dias</TableHead><TableHead className="text-right">Valor Parado</TableHead></TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {strategyData.zombies.map(z => (
+                                        <TableRow key={z.id_item}>
+                                            <TableCell className="text-xs">{z.ds_material}</TableCell>
+                                            <TableCell className="text-right font-bold text-red-500">{z.dias_cobertura.toFixed(0)}</TableCell>
+                                            <TableCell className="text-right">R$ {z.valor_imobilizado.toLocaleString('pt-BR', {maximumFractionDigits: 0})}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                   </Card>
+               </div>
+               
+               <Card>
+                  <CardHeader><CardTitle>Eficiência de Capital</CardTitle><CardDescription>Dias de Cobertura vs Valor Imobilizado</CardDescription></CardHeader>
+                  <CardContent className="h-[400px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                            <CartesianGrid />
+                            <XAxis type="number" dataKey="dias_cobertura" name="Dias Cobertura" unit="d" domain={[0, 365]} />
+                            <YAxis type="number" dataKey="valor_imobilizado" name="Valor" unit="R$" tickFormatter={formatYAxis} />
+                            <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} />
+                            <Legend />
+                            <ReferenceLine x={30} stroke="green" label="Meta 30d" />
+                            <ReferenceLine x={90} stroke="red" label="Risco" />
+                            <Scatter name="Itens" data={strategyData.scatter_data} fill="#8884d8">
+                                {strategyData.scatter_data.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.dias_cobertura > 90 ? '#ef4444' : (entry.dias_cobertura < 15 ? '#eab308' : '#22c55e')} />
+                                ))}
+                            </Scatter>
+                        </ScatterChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+               </Card>
+             </>
+           )}
+        </TabsContent>
+
+        <TabsContent value="inflacao" className="space-y-4">
+            {inflationData && (
+                <div className="grid grid-cols-1 gap-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <TrendingUp className="h-5 w-5 text-red-500" />
+                                Evolução de Preços (Top 5 Inflação)
+                            </CardTitle>
+                            <CardDescription>
+                                Variação do Custo Unitário Médio mês a mês
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="h-[400px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={inflationChartData.data} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="name" />
+                                    <YAxis 
+                                        label={{ value: 'Preço Médio (R$)', angle: -90, position: 'insideLeft' }} 
+                                        tickFormatter={(val) => `R$ ${val}`}
+                                    />
+                                    <RechartsTooltip 
+                                        formatter={(value: number) => [`R$ ${value.toFixed(2)}`, 'Preço']}
+                                        labelFormatter={(label) => `Mês: ${label}`}
+                                    />
+                                    <Legend />
+                                    {inflationChartData.lines.map((itemKey, index) => (
+                                        <Line 
+                                            key={itemKey}
+                                            type="monotone" 
+                                            dataKey={itemKey} 
+                                            stroke={colors[index % colors.length]} 
+                                            strokeWidth={2}
+                                            dot={{ r: 3 }}
+                                            activeDot={{ r: 6 }}
+                                        />
+                                    ))}
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Ranking de Inflação Interna</CardTitle>
+                            <CardDescription>Itens que mais aumentaram de preço no período analisado</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Item</TableHead>
+                                        <TableHead className="text-right">Inflação Acumulada</TableHead>
+                                        <TableHead className="text-right">Ação Sugerida</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {inflationData.top_items.map((item) => (
+                                        <TableRow key={item.id_item}>
+                                            <TableCell className="font-medium">{item.ds_material_hospital}</TableCell>
+                                            <TableCell className="text-right text-red-600 font-bold">
+                                                +{item.inflacao_acumulada.toFixed(2)}%
+                                            </TableCell>
+                                            <TableCell className="text-right text-xs text-muted-foreground">
+                                                {item.inflacao_acumulada > 100 ? "Renegociação Urgente" : "Monitorar Fornecedor"}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
         </TabsContent>
       </Tabs>
     </div>

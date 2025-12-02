@@ -53,8 +53,6 @@ def get_risk_insight():
     df_risco = df.groupby(['id_item', 'ds_material_hospital', 'ds_grupo']).agg(agg_validas).reset_index()
     
     # Renomear colunas achatadas
-    # A ordem depende de como o pandas agrega, vamos forçar nomes padrão
-    # Nota: A ordem aqui assume que todas as colunas existiam. Para robustez:
     df_risco.columns = ['id_produto', 'nome', 'grupo', 'consumo_medio', 'consumo_std', 'consumo_total', 'estoque_medio', 'custo_total_acumulado']
     
     df_risco['consumo_std'] = df_risco['consumo_std'].fillna(0)
@@ -96,12 +94,7 @@ def get_risk_insight():
 @router.get("/api/insights/seasonality")
 def get_seasonality_insight():
     """
-    Aplica a lógica de Sazonalidade vs Linearidade (Notebook Snippet 39/49):
-    1. Filtra Medicamentos.
-    2. Remove itens com pouco histórico (< 6 meses) ou baixo volume (< 10 un).
-    3. Calcula Razão de Pico (Max/Media) e CV.
-    4. Identifica Top Sazonais (Maiores picos).
-    5. Identifica Top Lineares (Menores CVs entre itens de alto volume).
+    Aplica a lógica de Sazonalidade vs Linearidade (Notebook Snippet 39/49)
     """
     if df_raw_storage is None:
         raise HTTPException(status_code=500, detail="Dados não carregados")
@@ -128,17 +121,14 @@ def get_seasonality_insight():
     col_map = {'ds_item': 'ds_material_hospital', 'ds_grupo_material': 'ds_grupo'}
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-    # 1. Filtrar Medicamentos (Conforme análise do notebook que foca em medicamentos)
+    # 1. Filtrar Medicamentos
     if 'ds_grupo' in df.columns:
-        # Filtra onde contém 'MEDICAMENTO'
         df_meds = df[df['ds_grupo'].str.upper().str.contains('MEDICAMENTO', na=False)].copy()
         if len(df_meds) == 0: 
-            # Se o filtro retornar vazio (ex: nomes de grupo diferentes), usa o DF inteiro como fallback
             df_meds = df.copy()
     else:
         df_meds = df.copy()
 
-    # Cria coluna periodo para ordenação temporal
     df_meds['periodo'] = pd.to_datetime(df_meds['ano'].astype(str) + '-' + df_meds['mes'].astype(str) + '-01')
     
     # 2. Agregação Mensal
@@ -156,7 +146,7 @@ def get_seasonality_insight():
         
         media = dados['qt_consumo'].mean()
 
-        # Regra de Exclusão do Notebook: Pouco histórico ou volume irrelevante
+        # Regra de Exclusão do Notebook
         if len(dados) < 6 or media < 10:
             continue
 
@@ -167,7 +157,6 @@ def get_seasonality_insight():
         # Métrica Estabilidade (CV)
         cv = dados['qt_consumo'].std() / media if media > 0 else 0
 
-        # Histórico para o gráfico
         historico = dados[['periodo', 'ano', 'mes', 'qt_consumo']].copy()
         historico['periodo_str'] = historico['periodo'].dt.strftime('%Y-%m')
         
@@ -188,13 +177,11 @@ def get_seasonality_insight():
     # 3. Classificação
     df_resultado['classificacao'] = 'Outros'
     
-    # Top Sazonais (Maiores Picos)
     df_sazonais = df_resultado.nlargest(10, 'razao_pico')
     ids_sazonais = df_sazonais['id_produto'].tolist()
     df_resultado.loc[df_resultado['id_produto'].isin(ids_sazonais), 'classificacao'] = 'Sazonal/Pico'
 
-    # Top Lineares (Menor variação, com volume relevante)
-    corte_volume = df_resultado['media'].quantile(0.4) # Ignora os 40% menores volumes
+    corte_volume = df_resultado['media'].quantile(0.4) 
     candidatos_linear = df_resultado[
         (~df_resultado['id_produto'].isin(ids_sazonais)) & 
         (df_resultado['media'] > corte_volume)
@@ -205,10 +192,7 @@ def get_seasonality_insight():
         ids_lineares = df_lineares['id_produto'].tolist()
         df_resultado.loc[df_resultado['id_produto'].isin(ids_lineares), 'classificacao'] = 'Estável/Linear'
 
-    # Retorna apenas os classificados relevantes para o Dashboard
     df_final = df_resultado[df_resultado['classificacao'] != 'Outros'].copy()
-    
-    # Ordenação para exibição: Sazonais primeiro
     df_final = df_final.sort_values(['classificacao', 'razao_pico'], ascending=[False, False])
 
     return df_final.to_dict(orient='records')
@@ -217,17 +201,13 @@ def get_seasonality_insight():
 @router.get("/api/insights/strategy")
 def get_strategic_insight():
     """
-    Implementação Fiel de 'celula3.py':
-    1. Matriz ABC-XYZ (Classificação por Valor acumulado e Previsibilidade).
-    2. Eficiência de Capital (Dias de Cobertura x Valor Imobilizado).
-    3. Lista de 'Zumbis' (Excesso > 90 dias).
+    Implementação Fiel de 'celula3.py': ABC-XYZ e Eficiência de Capital
     """
     if df_raw_storage is None:
         raise HTTPException(status_code=500, detail="Dados não carregados")
 
     df = df_raw_storage.copy()
 
-    # Normalização de nomes (igual ao notebook)
     col_map = {
         'ds_item': 'ds_material_hospital', 
         'ds_grupo_material': 'ds_grupo',
@@ -235,17 +215,13 @@ def get_strategic_insight():
     }
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-    # --- 1. PREPARAR DADOS AGREGADOS (Conforme celula3.py) ---
-    # Garante colunas necessárias
     cols_agg = {
         'custo_total': 'sum',
         'qt_consumo': ['mean', 'std'],
         'qt_estoque': 'mean'
     }
-    # Filtra colunas que realmente existem no DF
     cols_existentes = [c for c in ['id_item', 'ds_material_hospital', 'ds_classe'] if c in df.columns]
     
-    # Se faltar alguma coluna essencial, cria fallback
     if 'custo_total' not in df.columns and 'custo_unitario' in df.columns and 'qt_consumo' in df.columns:
         df['custo_total'] = df['custo_unitario'] * df['qt_consumo']
 
@@ -253,8 +229,6 @@ def get_strategic_insight():
         k: v for k, v in cols_agg.items() if k in df.columns
     }).reset_index()
 
-    # Ajustar nomes das colunas (Flattening MultiIndex)
-    # A ordem exata depende da versão do pandas, então vamos renomear com segurança
     df_agg.columns = [
         'id_item', 'ds_material', 'ds_classe', 
         'custo_total', 'consumo_medio', 'consumo_std', 'estoque_medio'
@@ -263,9 +237,7 @@ def get_strategic_insight():
     df_agg = df_agg.fillna(0)
     df_agg = df_agg[df_agg['consumo_medio'] > 0].copy()
 
-    # --- PARTE A: MATRIZ ABC-XYZ ---
-    
-    # Passo A1: Classificação ABC (Por Valor)
+    # ABC
     df_agg = df_agg.sort_values('custo_total', ascending=False)
     df_agg['acumulado'] = df_agg['custo_total'].cumsum()
     total_custo = df_agg['custo_total'].sum()
@@ -278,7 +250,7 @@ def get_strategic_insight():
 
     df_agg['Classe_ABC'] = df_agg['perc_acumulado'].apply(define_abc)
 
-    # Passo A2: Classificação XYZ (Por Previsibilidade/CV)
+    # XYZ
     df_agg['cv'] = df_agg['consumo_std'] / df_agg['consumo_medio']
 
     def define_xyz(x):
@@ -288,7 +260,6 @@ def get_strategic_insight():
 
     df_agg['Classe_XYZ'] = df_agg['cv'].apply(define_xyz)
 
-    # Dados para Heatmap (Contagem)
     matriz_counts = df_agg.pivot_table(
         index='Classe_ABC', 
         columns='Classe_XYZ', 
@@ -296,29 +267,18 @@ def get_strategic_insight():
         aggfunc='count'
     ).fillna(0).to_dict()
 
-    # --- PARTE B: CAÇA AO DINHEIRO PARADO (EFICIÊNCIA) ---
-
-    # Passo B1: Calcular Dias de Cobertura
-    # (df_agg['estoque_medio'] / df_agg['consumo_medio']) * 30
+    # Eficiência
     df_agg['dias_cobertura'] = (df_agg['estoque_medio'] / df_agg['consumo_medio']) * 30
-
-    # Estimativa do Valor Imobilizado
-    # custo_unit_estimado = custo_total / (consumo_medio * 12)
-    # valor_imobilizado = estoque_medio * custo_unit_estimado
     df_agg['custo_unit_estimado'] = df_agg['custo_total'] / (df_agg['consumo_medio'] * 12)
     df_agg['valor_imobilizado'] = df_agg['estoque_medio'] * df_agg['custo_unit_estimado']
 
-    # Limpeza de Infinitos/NaN
     df_agg = df_agg.replace([np.inf, -np.inf], 0).fillna(0)
 
-    # Filtro visual (igual ao celula3.py: dias_cobertura < 365 para o gráfico)
     df_vis = df_agg[df_agg['dias_cobertura'] < 365].copy()
-
-    # Listar os "Zumbis" ( > 90 dias, Top 5 valor imobilizado)
     zumbis = df_vis[df_vis['dias_cobertura'] > 90].sort_values('valor_imobilizado', ascending=False).head(5)
 
     return {
-        "matrix": matriz_counts, # Estrutura: {'X': {'A': 10, 'B': 5...}, 'Y': ...}
+        "matrix": matriz_counts,
         "scatter_data": df_vis[[
             'id_item', 'ds_material', 'Classe_ABC', 'Classe_XYZ', 
             'dias_cobertura', 'valor_imobilizado', 'custo_total'
@@ -327,4 +287,107 @@ def get_strategic_insight():
             'id_item', 'ds_material', 'dias_cobertura', 
             'valor_imobilizado', 'Classe_ABC'
         ]].to_dict(orient='records')
+    }
+
+@router.get("/api/insights/inflation")
+def get_inflation_insight():
+    """
+    Implementação Fiel de 'celula4.py': ANÁLISE DE INFLAÇÃO DE CUSTOS
+    1. Identifica coluna de data.
+    2. Agrupa preço médio por Mês e Item.
+    3. Calcula variação (Inflação) entre primeiro e último preço do período.
+    4. Filtra sanidade (aumento < 1000%).
+    5. Retorna Top 5 e Histórico para plotagem.
+    """
+    if df_raw_storage is None:
+        raise HTTPException(status_code=500, detail="Dados não carregados no servidor")
+
+    df = df_raw_storage.copy()
+    
+    # --- 1. Preparação de Dados ---
+    col_data = 'dt_movimento_estoque'
+    # Fallback se não achar o nome exato
+    if col_data not in df.columns:
+        for c in ['data', 'dt_movimento', 'dt_referencia']:
+             if c in df.columns:
+                col_data = c
+                break
+    
+    if col_data not in df.columns:
+        return {"top_items": [], "history": []}
+
+    # Normalização de nomes
+    col_map = {'ds_item': 'ds_material_hospital'}
+    df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+    
+    # Garante nome do item
+    if 'ds_material_hospital' not in df.columns:
+        # Tenta pegar a primeira coluna de texto como nome
+        cols_obj = df.select_dtypes(include=['object']).columns
+        df['ds_material_hospital'] = df[cols_obj[0]] if len(cols_obj) > 0 else "Item " + df['id_item'].astype(str)
+
+    # Converter data
+    df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
+    df = df.dropna(subset=[col_data])
+
+    # Criar Periodo Mensal
+    df['mes_ref'] = df[col_data].dt.to_period('M')
+
+    # Calcular Custo Unitário se não existir
+    if 'custo_unitario' not in df.columns:
+        df['custo_unitario'] = df['custo_total'] / df['qt_consumo'].replace(0, 1)
+
+    # --- 2. Agrupamento Temporal ---
+    # Filtra consumo/custo > 0
+    df_valid = df[(df['qt_consumo'] > 0) & (df['custo_total'] > 0)].copy()
+
+    if df_valid.empty:
+         return {"top_items": [], "history": []}
+
+    # Preço médio mensal por item
+    df_hist = df_valid.groupby(
+        ['id_item', 'ds_material_hospital', 'mes_ref']
+    )['custo_unitario'].mean().reset_index()
+
+    # Converter periodo para string/timestamp para retorno
+    df_hist['mes_ref_dt'] = df_hist['mes_ref'].dt.to_timestamp()
+    df_hist['data_str'] = df_hist['mes_ref_dt'].dt.strftime('%Y-%m-%d')
+
+    # --- 3. Cálculo de Inflação ---
+    
+    def calcular_inflacao_item(subdf):
+        subdf = subdf.sort_values('mes_ref')
+        if len(subdf) < 2: 
+            return 0.0
+        
+        preco_ini = subdf['custo_unitario'].iloc[0]
+        preco_fim = subdf['custo_unitario'].iloc[-1]
+        
+        if preco_ini < 0.01: return 0.0 # Evita distorção com preço zero
+        
+        return ((preco_fim - preco_ini) / preco_ini) * 100
+
+    # Aplica a função para cada item
+    # Usamos groupby + apply. Para performance em datasets grandes, vetorizar seria ideal,
+    # mas o apply mantém a lógica exata do notebook.
+    resultados_inflacao = df_hist.groupby(['id_item', 'ds_material_hospital']).apply(calcular_inflacao_item)
+    
+    # Transforma Series em DataFrame
+    df_inflacao = resultados_inflacao.reset_index(name='inflacao_acumulada')
+
+    # Filtro de Sanidade (< 1000%)
+    df_inflacao = df_inflacao[df_inflacao['inflacao_acumulada'] < 1000]
+
+    # Top 5
+    top_inflacao = df_inflacao.sort_values('inflacao_acumulada', ascending=False).head(5)
+    
+    # --- 4. Preparar Dados para o Gráfico ---
+    # Pegamos o histórico apenas dos top 5 itens
+    top_ids = top_inflacao['id_item'].tolist()
+    df_plot = df_hist[df_hist['id_item'].isin(top_ids)].copy()
+
+    # Retorno estruturado
+    return {
+        "top_items": top_inflacao.to_dict(orient='records'),
+        "history": df_plot[['id_item', 'ds_material_hospital', 'data_str', 'custo_unitario']].to_dict(orient='records')
     }
