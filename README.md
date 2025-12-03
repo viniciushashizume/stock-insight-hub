@@ -1,73 +1,113 @@
-# Welcome to your Lovable project
+# Desafio Unimed 🏥
 
-## Project info
+> **Resumo:** Um dashboard de inteligência de estoque hospitalar que utiliza algoritmos de Machine Learning (K-Means) para otimizar compras, prevenir rupturas e identificar ineficiências financeiras.
 
-**URL**: https://lovable.dev/projects/f8e7c79f-6ee1-43ff-92bb-3e648f50df7d
+## Tabela de Conteúdos
+* [Sobre o Projeto](#sobre-o-projeto)
+* [Funcionalidades](#funcionalidades)
+* [Tecnologias Utilizadas](#tecnologias-utilizadas)
+* [Instalação e Execução](#instalação-e-execução)
+* [Como Usar](#como-usar)
+* [Arquitetura dos Insights](#arquitetura-dos-insights)
+* [Créditos](#créditos)
 
-## How can I edit this code?
+## Sobre o Projeto
 
-There are several ways of editing your application.
+A gestão de estoque hospitalar é crítica: a falta de um item pode custar vidas, enquanto o excesso drena recursos financeiros. O **Stock Insight Hub** resolve esse problema indo além das planilhas simples.
 
-**Use Lovable**
+* **Motivação:** A necessidade de categorizar milhares de itens (medicamentos, OPME, materiais) não apenas por nome, mas pelo comportamento de consumo e impacto financeiro.
+* **Solução:** O sistema processa dados históricos e aplica clusterização automática para sugerir estratégias de reposição (ex: itens sazonais vs. lineares).
+* **Destaque:** O uso da **Matriz Estratégica (ABC-XYZ)** combinada com análise de "Itens Zumbis" (estoque parado) e detecção automática de inflação de preços.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/f8e7c79f-6ee1-43ff-92bb-3e648f50df7d) and start prompting.
+## Funcionalidades
 
-Changes made via Lovable will be committed automatically to this repo.
+O sistema é dividido em módulos de inteligência:
 
-**Use your preferred IDE**
+- [x] **Análise de Clusters (K-Means):** Agrupa itens automaticamente em perfis (ex: "Alto Giro/Baixo Custo", "Item Crítico") sem necessidade de classificação manual.
+- [x] **Detector de Risco de Ruptura:** Cruza a variabilidade da demanda (CV) com a cobertura de estoque atual para alertar sobre itens instáveis prestes a acabar.
+- [x] **Matriz ABC-XYZ:** Classifica itens pela importância financeira (A, B, C) e previsibilidade de demanda (X, Y, Z).
+- [x] **Análise de Sazonalidade:** Identifica itens com picos de consumo em meses específicos vs. itens de consumo linear.
+- [x] **Eficiência Financeira ("Zumbis"):** Detecta itens com capital imobilizado excessivo e baixo giro (> 90 dias de cobertura).
+- [x] **Monitor de Inflação:** Rastreia a variação do custo unitário médio para identificar aumentos abusivos de fornecedores.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Tecnologias Utilizadas
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+**Frontend:**
+* **React + Vite:** Para uma interface rápida e responsiva.
+* **TypeScript:** Para segurança de tipagem.
+* **Tailwind CSS + shadcn/ui:** Para um design system moderno e limpo.
+* **Recharts:** Para visualização de dados (gráficos de dispersão, linhas e áreas).
+* **React Query:** Para gerenciamento de estado assíncrono.
 
-Follow these steps:
+**Backend (API de Insights):**
+* **Python:** Linguagem base para análise de dados.
+* **FastAPI:** Framework para servir os dados ao frontend.
+* **Pandas & NumPy:** Manipulação e agregação de dados.
+* **Scikit-learn:** Implementação do algoritmo K-Means e padronização de dados (StandardScaler).
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Instalação e Execução
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+O projeto funciona em duas partes: o servidor Python (Backend) e a interface React (Frontend).
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Pré-requisitos
+* Node.js (v18+)
+* Python (3.9+)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+### Passo 1: Rodar o Backend (API)
 
-**Edit a file directly in GitHub**
+1. Entre na pasta raiz do projeto.
+2. Instale as dependências Python:
+   ```bash
+   pip install pandas numpy scikit-learn fastapi uvicorn
+    ```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+3.  Execute o servidor:
+    ```bash
+    python server.py
+    ```
+    *O servidor rodará em `http://0.0.0.0:8000`. Se o arquivo de dados `df_analise.csv.gz` não for encontrado, o sistema gerará dados sintéticos automaticamente para testes.*
 
-**Use GitHub Codespaces**
+### Passo 2: Rodar o Frontend
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+1.  Em um novo terminal, na pasta do projeto:
+    ```bash
+    npm install
+    ```
+2.  Inicie o servidor de desenvolvimento:
+    ```bash
+    npm run dev
+    ```
+3.  Acesse `http://localhost:8080` (ou a porta indicada no terminal) no seu navegador.
 
-## What technologies are used for this project?
+## Como Usar
 
-This project is built with:
+### Navegação Principal
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+  * **Visão Geral:** Dashboard com KPIs macro (Valor total em estoque, número de grupos ativos).
+  * **Análise de Clusters:** Veja como o algoritmo agrupou seus itens. Use isso para definir políticas de compra em massa para grupos de "Baixo Valor/Alto Giro".
+  * **Insights (Aba Principal):**
+      * **Risco:** Foco nos itens vermelhos do gráfico de dispersão. Eles têm alta variabilidade e baixo estoque.
+      * **Sazonalidade:** Compare a linha laranja (ano atual) com a cinza (ano anterior) para prever picos.
+      * **Matriz Estratégica:** Dê atenção máxima aos itens **"AZ"** (Alto Custo, Baixa Previsibilidade). Não use reposição automática neles\!
+      * **Eficiência:** Identifique os "Zumbis" (tabela inferior) e considere liquidação ou doação para liberar capital.
 
-## How can I deploy this project?
+### Arquitetura dos Insights
 
-Simply open [Lovable](https://lovable.dev/projects/f8e7c79f-6ee1-43ff-92bb-3e648f50df7d) and click on Share -> Publish.
+O backend (`insights.py`) processa os dados seguindo estas lógicas de negócio:
 
-## Can I connect a custom domain to my Lovable project?
+1.  **Normalização:** Padroniza nomes de colunas (`ds_item` -\> `ds_material_hospital`).
+2.  **Cálculo de Métricas:** Gera Cobertura (Estoque / Consumo Médio) e CV (Desvio Padrão / Média).
+3.  **Regras de Negócio:**
+      - *Crítico:* CV \> 0.8 e Cobertura \< 1 mês.
+      - *Inflação:* Variação de preço \> 0% e \< 1000% (filtro de sanidade).
 
-Yes, you can!
+> **⚠️ Observação Importante:**
+> Para garantir a qualidade estatística dos insights, foram considerados apenas os grupos com **mais de 10 itens**.
+>
+> Caso apareça na dashboard algum grupo contendo apenas um cluster (geralmente Cluster 0), ele pertence a essa categoria de baixa amostragem e **não deve ser considerado** na análise de perfis, pois não passou pelo processamento do algoritmo K-Means.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Créditos
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+  * **Desenvolvedores:** Vinicius Hashizume, Maurice Santos, Nicolas Motta
+  * **Bibliotecas:** Este projeto utiliza componentes open-source da comunidade React e Python.
+
